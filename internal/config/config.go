@@ -20,9 +20,10 @@ type AccrualConfig struct {
 }
 
 type PlannedPTO struct {
-	StartDate string  `json:"start_date"` // YYYY-MM-DD
-	EndDate   string  `json:"end_date"`   // YYYY-MM-DD
-	Hours     float64 `json:"hours"`      // hours used (default 8 per weekday)
+	StartDate string  `json:"start_date"`      // YYYY-MM-DD
+	EndDate   string  `json:"end_date"`         // YYYY-MM-DD
+	Hours     float64 `json:"hours"`            // hours used (default 8 per weekday)
+	Label     string  `json:"label,omitempty"`
 }
 
 type Config struct {

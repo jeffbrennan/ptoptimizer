@@ -43,7 +43,11 @@ var planListCmd = &cobra.Command{
 					hours = float64(weekdays) * 8
 				}
 			}
-			fmt.Printf("  %s to %s  (%.0f hours)\n", p.StartDate, p.EndDate, hours)
+			if p.Label != "" {
+				fmt.Printf("  %s to %s  (%.0f hours)  %s\n", p.StartDate, p.EndDate, hours, p.Label)
+			} else {
+				fmt.Printf("  %s to %s  (%.0f hours)\n", p.StartDate, p.EndDate, hours)
+			}
 		}
 		return nil
 	},
@@ -56,6 +60,7 @@ var planAddCmd = &cobra.Command{
 		startStr, _ := cmd.Flags().GetString("start")
 		endStr, _ := cmd.Flags().GetString("end")
 		hours, _ := cmd.Flags().GetFloat64("hours")
+		label, _ := cmd.Flags().GetString("label")
 
 		if startStr == "" {
 			return fmt.Errorf("--start is required")
@@ -82,13 +87,18 @@ var planAddCmd = &cobra.Command{
 			StartDate: startStr,
 			EndDate:   endStr,
 			Hours:     hours,
+			Label:     label,
 		})
 
 		if err := config.Save(cfg); err != nil {
 			return fmt.Errorf("saving config: %w", err)
 		}
 
-		fmt.Printf("Added PTO: %s to %s\n", startStr, endStr)
+		if label != "" {
+			fmt.Printf("Added PTO: %s to %s (%s)\n", startStr, endStr, label)
+		} else {
+			fmt.Printf("Added PTO: %s to %s\n", startStr, endStr)
+		}
 		return nil
 	},
 }
@@ -127,15 +137,57 @@ var planRemoveCmd = &cobra.Command{
 	},
 }
 
+var planLabelCmd = &cobra.Command{
+	Use:   "label",
+	Short: "Set or update the label on a planned PTO entry",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		startStr, _ := cmd.Flags().GetString("start")
+		label, _ := cmd.Flags().GetString("label")
+
+		if startStr == "" {
+			return fmt.Errorf("--start is required")
+		}
+		if label == "" {
+			return fmt.Errorf("--label is required")
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		found := false
+		for i, p := range cfg.PlannedTimeOff {
+			if p.StartDate == startStr {
+				cfg.PlannedTimeOff[i].Label = label
+				found = true
+				fmt.Printf("Labeled PTO %s to %s: %s\n", p.StartDate, p.EndDate, label)
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("no PTO found starting on %s", startStr)
+		}
+
+		return config.Save(cfg)
+	},
+}
+
 func init() {
 	planAddCmd.Flags().String("start", "", "Start date (YYYY-MM-DD)")
 	planAddCmd.Flags().String("end", "", "End date (YYYY-MM-DD, defaults to start)")
 	planAddCmd.Flags().Float64("hours", 0, "Hours to use (default: 8 per weekday)")
+	planAddCmd.Flags().String("label", "", "Label for this PTO (e.g. \"upstate camping\")")
 
 	planRemoveCmd.Flags().String("start", "", "Start date of PTO to remove")
+
+	planLabelCmd.Flags().String("start", "", "Start date of PTO to label")
+	planLabelCmd.Flags().String("label", "", "Label to set")
 
 	planCmd.AddCommand(planListCmd)
 	planCmd.AddCommand(planAddCmd)
 	planCmd.AddCommand(planRemoveCmd)
+	planCmd.AddCommand(planLabelCmd)
 	rootCmd.AddCommand(planCmd)
 }
