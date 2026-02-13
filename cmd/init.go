@@ -120,7 +120,7 @@ func runMainForm(allHolidays []config.Holiday) ([]int, *accrualInput, error) {
 			huh.NewInput().
 				Title("Current PTO balance (hours)").
 				Value(&acc.balanceStr).
-				Validate(validateFloat),
+				Validate(validateHours("balance", 0, maxPTOHours)),
 			huh.NewInput().
 				Title("Balance as-of date (YYYY-MM-DD)").
 				Value(&acc.asOfDate).
@@ -128,7 +128,7 @@ func runMainForm(allHolidays []config.Holiday) ([]int, *accrualInput, error) {
 			huh.NewInput().
 				Title("Accrual rate (hours per pay period)").
 				Value(&acc.rateStr).
-				Validate(validateFloat),
+				Validate(validateHours("accrual rate", 0, maxAccrualRate)),
 			huh.NewSelect[int]().
 				Title("Pay period").
 				Options(
@@ -141,7 +141,7 @@ func runMainForm(allHolidays []config.Holiday) ([]int, *accrualInput, error) {
 			huh.NewInput().
 				Title("Maximum balance cap (hours, 0 = unlimited)").
 				Value(&acc.maxStr).
-				Validate(validateFloat),
+				Validate(validateHours("max balance", 0, maxPTOHours)),
 		),
 	)
 
@@ -180,7 +180,7 @@ func addCustomHolidays() ([]config.Holiday, error) {
 				huh.NewInput().
 					Title("Date (YYYY-MM-DD)").
 					Value(&date).
-					Validate(validateDate),
+					Validate(validateFutureDate),
 				huh.NewConfirm().
 					Title("Add another custom holiday?").
 					Value(&addAnother),
@@ -228,12 +228,14 @@ func confirmSave(hols []config.Holiday, accrual *config.AccrualConfig) (bool, er
 
 	fmt.Println("\n" + sb.String())
 
-	var confirmed bool
+	confirmed := true
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Save this configuration?").
 				Description("Select 'No' to start over.").
+				Affirmative("Yes").
+				Negative("No").
 				Value(&confirmed),
 		),
 	)
@@ -243,18 +245,43 @@ func confirmSave(hols []config.Holiday, accrual *config.AccrualConfig) (bool, er
 	return confirmed, nil
 }
 
-func validateFloat(s string) error {
-	_, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return fmt.Errorf("enter a valid number")
+const (
+	maxPTOHours    = 480 // 60 days × 8 hours
+	maxAccrualRate = 40  // 5 days per pay period is extremely generous
+)
+
+// validateHours returns a validator that checks a numeric string is within [min, max].
+func validateHours(field string, min, max float64) func(string) error {
+	return func(s string) error {
+		v, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return fmt.Errorf("enter a valid number")
+		}
+		if v < min {
+			return fmt.Errorf("%s cannot be negative", field)
+		}
+		if v > max {
+			return fmt.Errorf("%s cannot exceed %.0f hours", field, max)
+		}
+		return nil
 	}
-	return nil
 }
 
 func validateDate(s string) error {
 	_, err := time.Parse("2006-01-02", s)
 	if err != nil {
 		return fmt.Errorf("invalid date format, use YYYY-MM-DD")
+	}
+	return nil
+}
+
+func validateFutureDate(s string) error {
+	d, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return fmt.Errorf("invalid date format, use YYYY-MM-DD")
+	}
+	if d.Before(time.Now().Truncate(24 * time.Hour)) {
+		return fmt.Errorf("date cannot be in the past")
 	}
 	return nil
 }
