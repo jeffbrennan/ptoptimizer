@@ -66,8 +66,6 @@ var balanceCmd = &cobra.Command{
 		}
 
 		fmt.Println(display.RenderYearCalendar(year, data))
-		fmt.Println(display.RenderLegend())
-		fmt.Println()
 
 		return nil
 	},

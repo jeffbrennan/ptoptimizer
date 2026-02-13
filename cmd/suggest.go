@@ -62,17 +62,13 @@ var suggestCmd = &cobra.Command{
 		}
 
 		fmt.Println(display.RenderYearCalendar(year, data))
-		fmt.Println(display.RenderLegend())
-		fmt.Println()
 
 		// Show suggestions list
-		fmt.Printf("  Top %d suggested PTO days for %d:\n\n", len(suggestions), year)
-		for i, s := range suggestions {
-			fmt.Printf("  %d. %s — %s\n", i+1, s.Date.Format("Mon Jan 2"), s.Explanation)
+		fmt.Printf("  Suggested PTO (%d days):\n\n", len(suggestions))
+		for _, s := range suggestions {
+			fmt.Printf("    %s  %d-day streak  %s\n", s.Date.Format("Mon Jan 2"), s.StreakDays, s.Explanation)
 		}
-
-		totalHours := float64(len(suggestions)) * 8
-		fmt.Printf("\n  Total: %d days (%.0f hours)\n\n", len(suggestions), totalHours)
+		fmt.Println()
 
 		return nil
 	},
