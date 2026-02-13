@@ -1,0 +1,12 @@
+# Binary
+ptopt
+
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# Test
+*.test
+*.out
