@@ -172,69 +172,67 @@ func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
 	return suggestions
 }
 
-// findBestBlock finds the best contiguous block of weekdays to take off.
-// It tries block sizes from 5 up to maxSize (capped by remaining days and 10).
+// findBestBlock finds the best contiguous block of 5 weekdays (one work week).
+// Scores by: nearby holidays/PTO that extend the streak, penalized by proximity
+// to already-suggested or planned days to spread vacations across the year.
 func findBestBlock(start, end time.Time, remaining int, holidays, pto, suggested map[string]bool) ([]time.Time, float64) {
-	maxSize := remaining
-	if maxSize > 10 {
-		maxSize = 10
-	}
-
 	var bestBlock []time.Time
 	var bestScore float64
 
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
-		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+		if d.Weekday() != time.Monday {
 			continue
 		}
 
-		// Build the longest available weekday run starting at d
+		// Build a Mon-Fri block
 		var block []time.Time
-		for c := d; !c.After(end) && len(block) < maxSize; c = c.AddDate(0, 0, 1) {
+		valid := true
+		for c := d; len(block) < 5 && !c.After(end); c = c.AddDate(0, 0, 1) {
 			if c.Weekday() == time.Saturday || c.Weekday() == time.Sunday {
 				continue
 			}
 			cs := c.Format("2006-01-02")
 			if holidays[cs] || pto[cs] || suggested[cs] {
+				valid = false
 				break
 			}
 			block = append(block, c)
 		}
-
-		// Only consider blocks of 5+ weekdays
-		if len(block) < 5 {
+		if !valid || len(block) < 5 {
 			continue
 		}
 
-		// Try each valid block length (5 to len(block))
-		for size := 5; size <= len(block); size++ {
-			candidate := block[:size]
+		// Temporarily mark to compute streak
+		for _, bd := range block {
+			suggested[bd.Format("2006-01-02")] = true
+		}
+		streak := computeStreak(block[0], holidays, pto, suggested)
+		if streak > maxStreakDays {
+			streak = maxStreakDays
+		}
+		// Unmark before computing proximity
+		for _, bd := range block {
+			delete(suggested, bd.Format("2006-01-02"))
+		}
 
-			// Temporarily mark these days to compute the full streak
-			for _, bd := range candidate {
-				suggested[bd.Format("2006-01-02")] = true
+		// Proximity to existing suggested days AND planned PTO
+		penalty := proximityPenalty(block[0], block[4], suggested, pto)
+
+		// Bonus for adjacent holidays (makes the vacation longer for free)
+		holidayBonus := 0
+		for offset := -3; offset <= 9; offset++ {
+			nd := d.AddDate(0, 0, offset)
+			if holidays[nd.Format("2006-01-02")] {
+				holidayBonus += 2
 			}
+		}
 
-			// Streak = total consecutive calendar days off for first day in block
-			streak := computeStreak(candidate[0], holidays, pto, suggested)
-			if streak > maxStreakDays {
-				streak = maxStreakDays
-			}
+		score := (float64(streak) + float64(holidayBonus)) * penalty
 
-			// Score: total streak, penalized by proximity to existing suggestions
-			penalty := blockProximityPenalty(candidate[0], candidate[len(candidate)-1], suggested)
-			score := float64(streak) * penalty
-
-			// Unmark
-			for _, bd := range candidate {
-				delete(suggested, bd.Format("2006-01-02"))
-			}
-
-			if score > bestScore {
-				bestScore = score
-				bestBlock = make([]time.Time, size)
-				copy(bestBlock, candidate)
-			}
+		if score > bestScore {
+			bestScore = score
+			bestBlock = make([]time.Time, len(block))
+			copy(bestBlock, block)
 		}
 	}
 
@@ -261,7 +259,7 @@ func findBestDay(start, end time.Time, holidays, pto, suggested map[string]bool)
 			streak = maxStreakDays
 		}
 
-		penalty := blockProximityPenalty(d, d, suggested)
+		penalty := proximityPenalty(d, d, suggested, pto)
 		score := float64(streak) * penalty
 
 		if score > bestScore {
@@ -274,31 +272,45 @@ func findBestDay(start, end time.Time, holidays, pto, suggested map[string]bool)
 	return bestDate, bestScore, bestStreak
 }
 
-// blockProximityPenalty penalizes blocks that are close to already-suggested days.
-func blockProximityPenalty(blockStart, blockEnd time.Time, suggested map[string]bool) float64 {
-	if len(suggested) == 0 {
-		return 1.0
-	}
+// proximityPenalty penalizes candidates close to already-suggested or planned days,
+// encouraging vacation blocks to spread across the year.
+func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]bool) float64 {
 	minDist := 366.0
 	for ds := range suggested {
 		t, err := time.Parse("2006-01-02", ds)
 		if err != nil {
 			continue
 		}
-		// Distance from nearest edge of the block
-		var dist float64
-		if t.Before(blockStart) {
-			dist = blockStart.Sub(t).Hours() / 24
-		} else if t.After(blockEnd) {
-			dist = t.Sub(blockEnd).Hours() / 24
-		} else {
-			continue // inside the block, skip
-		}
+		dist := edgeDist(blockStart, blockEnd, t)
 		if dist < minDist {
 			minDist = dist
 		}
 	}
+	for ds := range pto {
+		t, err := time.Parse("2006-01-02", ds)
+		if err != nil {
+			continue
+		}
+		dist := edgeDist(blockStart, blockEnd, t)
+		if dist < minDist {
+			minDist = dist
+		}
+	}
+	if minDist >= 366.0 {
+		return 1.0
+	}
+	// Steep penalty: blocks within 30 days of existing time off score very low
 	return math.Min(1.0, minDist/60.0)
+}
+
+func edgeDist(blockStart, blockEnd, t time.Time) float64 {
+	if t.Before(blockStart) {
+		return blockStart.Sub(t).Hours() / 24
+	}
+	if t.After(blockEnd) {
+		return t.Sub(blockEnd).Hours() / 24
+	}
+	return 0
 }
 
 // computeStreak calculates the total consecutive days off if a candidate day is taken off.
