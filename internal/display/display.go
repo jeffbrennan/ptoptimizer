@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	ptoStyle       = lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("16")).Bold(true)
-	suggestedColor = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	ptoStyle       = lipgloss.NewStyle().Background(lipgloss.Color("209")).Foreground(lipgloss.Color("16")).Bold(true)
+	suggestedColor = lipgloss.NewStyle().Foreground(lipgloss.Color("209")).Bold(true)
 	headerStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
 	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 

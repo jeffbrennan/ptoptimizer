@@ -105,7 +105,8 @@ var suggestCmd = &cobra.Command{
 			right := ""
 			if i < len(suggestions) {
 				s := suggestions[i]
-				right = fmt.Sprintf("%s  %d-day streak  %s", s.Date.Format("Mon Jan 02"), s.StreakDays, s.Explanation)
+				streak := fmt.Sprintf("%d-day streak", s.StreakDays)
+				right = fmt.Sprintf("%s  %-14s  %s", s.Date.Format("Mon Jan 02"), streak, s.Explanation)
 			}
 			fmt.Printf("    %-32s  %s\n", left, right)
 		}
