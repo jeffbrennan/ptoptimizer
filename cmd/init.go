@@ -27,54 +27,68 @@ func runInit(cmd *cobra.Command, args []string) error {
 	year := time.Now().Year()
 	allHolidays := holidays.USFederalHolidays(year)
 
-	// Step 1: Holiday selection
-	selectedHolidays, err := selectHolidays(allHolidays)
-	if err != nil {
-		return err
-	}
+	for {
+		// Run main form (holiday select + accrual) with back navigation between groups
+		selectedIndices, accrual, err := runMainForm(allHolidays)
+		if err != nil {
+			return err
+		}
 
-	// Step 1b: Custom holidays
-	customHolidays, err := addCustomHolidays()
-	if err != nil {
-		return err
-	}
-	selectedHolidays = append(selectedHolidays, customHolidays...)
+		selectedHolidays := make([]config.Holiday, len(selectedIndices))
+		for i, idx := range selectedIndices {
+			selectedHolidays[i] = allHolidays[idx]
+		}
 
-	// Step 2: Accrual configuration
-	accrual, err := configureAccrual()
-	if err != nil {
-		return err
-	}
+		// Custom holidays (dynamic loop, handled separately)
+		customHolidays, err := addCustomHolidays()
+		if err != nil {
+			return err
+		}
+		selectedHolidays = append(selectedHolidays, customHolidays...)
 
-	// Step 3: Confirmation
-	confirmed, err := confirmAndSave(selectedHolidays, accrual)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		fmt.Println("Setup cancelled.")
+		// Parse accrual strings into config
+		accrualCfg := parseAccrual(accrual)
+
+		// Confirmation — decline loops back to restart
+		confirmed, err := confirmSave(selectedHolidays, accrualCfg)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Println("Let's start over.\n")
+			continue
+		}
+
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("loading config: %w", err)
+		}
+
+		cfg.Holidays = selectedHolidays
+		cfg.Accrual = *accrualCfg
+
+		if err := config.Save(cfg); err != nil {
+			return fmt.Errorf("saving config: %w", err)
+		}
+
+		fmt.Println("Configuration saved! You're all set.")
+		fmt.Println("Try `ptopt suggest` to see recommended PTO days.")
 		return nil
 	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-
-	cfg.Holidays = selectedHolidays
-	cfg.Accrual = *accrual
-
-	if err := config.Save(cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
-	}
-
-	fmt.Println("Configuration saved! You're all set.")
-	fmt.Println("Try `ptopt suggest` to see recommended PTO days.")
-	return nil
 }
 
-func selectHolidays(allHolidays []config.Holiday) ([]config.Holiday, error) {
-	// Build options — all pre-selected by default
+type accrualInput struct {
+	balanceStr string
+	asOfDate   string
+	rateStr    string
+	periodDays int
+	maxStr     string
+}
+
+// runMainForm runs holiday selection and accrual config as groups in a single form,
+// giving the user Shift+Tab / back navigation between the two steps.
+func runMainForm(allHolidays []config.Holiday) ([]int, *accrualInput, error) {
+	// Holiday multiselect — all pre-selected
 	options := make([]huh.Option[int], len(allHolidays))
 	selected := make([]int, len(allHolidays))
 	for i, h := range allHolidays {
@@ -82,25 +96,60 @@ func selectHolidays(allHolidays []config.Holiday) ([]config.Holiday, error) {
 		selected[i] = i
 	}
 
+	// Accrual fields with defaults
+	today := time.Now().Format("2006-01-02")
+	acc := &accrualInput{
+		balanceStr: "0",
+		asOfDate:   today,
+		rateStr:    "0",
+		maxStr:     "0",
+	}
+
 	form := huh.NewForm(
+		// Group 1: Holidays
 		huh.NewGroup(
 			huh.NewMultiSelect[int]().
 				Title("Select your holidays").
-				Description("All US federal holidays are pre-selected. Deselect any your employer doesn't observe.").
+				Description("All US federal holidays are pre-selected. Deselect any your employer doesn't observe.\nPress enter to continue, shift+tab to go back.").
 				Options(options...).
 				Value(&selected),
+		),
+
+		// Group 2: Accrual
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Current PTO balance (hours)").
+				Value(&acc.balanceStr).
+				Validate(validateFloat),
+			huh.NewInput().
+				Title("Balance as-of date (YYYY-MM-DD)").
+				Value(&acc.asOfDate).
+				Validate(validateDate),
+			huh.NewInput().
+				Title("Accrual rate (hours per pay period)").
+				Value(&acc.rateStr).
+				Validate(validateFloat),
+			huh.NewSelect[int]().
+				Title("Pay period").
+				Options(
+					huh.NewOption("Biweekly (every 2 weeks)", 14),
+					huh.NewOption("Semi-monthly (twice a month)", 15),
+					huh.NewOption("Monthly", 30),
+					huh.NewOption("Weekly", 7),
+				).
+				Value(&acc.periodDays),
+			huh.NewInput().
+				Title("Maximum balance cap (hours, 0 = unlimited)").
+				Value(&acc.maxStr).
+				Validate(validateFloat),
 		),
 	)
 
 	if err := form.Run(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	result := make([]config.Holiday, len(selected))
-	for i, idx := range selected {
-		result[i] = allHolidays[idx]
-	}
-	return result, nil
+	return selected, acc, nil
 }
 
 func addCustomHolidays() ([]config.Holiday, error) {
@@ -131,13 +180,7 @@ func addCustomHolidays() ([]config.Holiday, error) {
 				huh.NewInput().
 					Title("Date (YYYY-MM-DD)").
 					Value(&date).
-					Validate(func(s string) error {
-						_, err := time.Parse("2006-01-02", s)
-						if err != nil {
-							return fmt.Errorf("invalid date format, use YYYY-MM-DD")
-						}
-						return nil
-					}),
+					Validate(validateDate),
 				huh.NewConfirm().
 					Title("Add another custom holiday?").
 					Value(&addAnother),
@@ -155,72 +198,21 @@ func addCustomHolidays() ([]config.Holiday, error) {
 	return customs, nil
 }
 
-func configureAccrual() (*config.AccrualConfig, error) {
-	var balanceStr, asOfDate, rateStr, maxStr string
-	var periodDays int
-
-	today := time.Now().Format("2006-01-02")
-
-	balanceStr = "0"
-	asOfDate = today
-	rateStr = "0"
-	maxStr = "0"
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Current PTO balance (hours)").
-				Value(&balanceStr).
-				Validate(validateFloat),
-			huh.NewInput().
-				Title("Balance as-of date").
-				Description("YYYY-MM-DD").
-				Value(&asOfDate).
-				Validate(func(s string) error {
-					_, err := time.Parse("2006-01-02", s)
-					if err != nil {
-						return fmt.Errorf("invalid date format, use YYYY-MM-DD")
-					}
-					return nil
-				}),
-			huh.NewInput().
-				Title("Accrual rate (hours per pay period)").
-				Value(&rateStr).
-				Validate(validateFloat),
-			huh.NewSelect[int]().
-				Title("Pay period").
-				Options(
-					huh.NewOption("Biweekly (every 2 weeks)", 14),
-					huh.NewOption("Semi-monthly (twice a month)", 15),
-					huh.NewOption("Monthly", 30),
-					huh.NewOption("Weekly", 7),
-				).
-				Value(&periodDays),
-			huh.NewInput().
-				Title("Maximum balance cap (hours, 0 = unlimited)").
-				Value(&maxStr).
-				Validate(validateFloat),
-		),
-	)
-
-	if err := form.Run(); err != nil {
-		return nil, err
-	}
-
-	balance, _ := strconv.ParseFloat(balanceStr, 64)
-	rate, _ := strconv.ParseFloat(rateStr, 64)
-	max, _ := strconv.ParseFloat(maxStr, 64)
+func parseAccrual(acc *accrualInput) *config.AccrualConfig {
+	balance, _ := strconv.ParseFloat(acc.balanceStr, 64)
+	rate, _ := strconv.ParseFloat(acc.rateStr, 64)
+	max, _ := strconv.ParseFloat(acc.maxStr, 64)
 
 	return &config.AccrualConfig{
 		CurrentBalanceHours: balance,
-		BalanceAsOfDate:     asOfDate,
+		BalanceAsOfDate:     acc.asOfDate,
 		AccrualRateHours:    rate,
-		PayPeriodDays:       periodDays,
+		PayPeriodDays:       acc.periodDays,
 		MaxBalanceHours:     max,
-	}, nil
+	}
 }
 
-func confirmAndSave(hols []config.Holiday, accrual *config.AccrualConfig) (bool, error) {
+func confirmSave(hols []config.Holiday, accrual *config.AccrualConfig) (bool, error) {
 	var sb strings.Builder
 	sb.WriteString("Holidays:\n")
 	for _, h := range hols {
@@ -241,6 +233,7 @@ func confirmAndSave(hols []config.Holiday, accrual *config.AccrualConfig) (bool,
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Save this configuration?").
+				Description("Select 'No' to start over.").
 				Value(&confirmed),
 		),
 	)
@@ -254,6 +247,14 @@ func validateFloat(s string) error {
 	_, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return fmt.Errorf("enter a valid number")
+	}
+	return nil
+}
+
+func validateDate(s string) error {
+	_, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		return fmt.Errorf("invalid date format, use YYYY-MM-DD")
 	}
 	return nil
 }
