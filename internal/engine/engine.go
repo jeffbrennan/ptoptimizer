@@ -87,9 +87,9 @@ const maxStreakDays = 14
 //  1. Pick week-long (5-weekday) vacation blocks for true vacations
 //  2. Fill remaining days individually for long weekends
 func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
-	holidaySet := make(map[string]bool)
+	holidaySet := make(map[string]string)
 	for _, h := range cfg.Holidays {
-		holidaySet[h.Date] = true
+		holidaySet[h.Date] = h.Name
 	}
 
 	ptoSet := make(map[string]bool)
@@ -175,7 +175,7 @@ func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
 // findBestBlock finds the best contiguous block of 5 weekdays (one work week).
 // Scores by: nearby holidays/PTO that extend the streak, penalized by proximity
 // to already-suggested or planned days to spread vacations across the year.
-func findBestBlock(start, end time.Time, remaining int, holidays, pto, suggested map[string]bool) ([]time.Time, float64) {
+func findBestBlock(start, end time.Time, remaining int, holidays map[string]string, pto, suggested map[string]bool) ([]time.Time, float64) {
 	var bestBlock []time.Time
 	var bestScore float64
 
@@ -192,7 +192,8 @@ func findBestBlock(start, end time.Time, remaining int, holidays, pto, suggested
 				continue
 			}
 			cs := c.Format("2006-01-02")
-			if holidays[cs] || pto[cs] || suggested[cs] {
+			_, isHoliday := holidays[cs]
+			if isHoliday || pto[cs] || suggested[cs] {
 				valid = false
 				break
 			}
@@ -222,7 +223,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays, pto, suggested
 		holidayBonus := 0
 		for offset := -3; offset <= 9; offset++ {
 			nd := d.AddDate(0, 0, offset)
-			if holidays[nd.Format("2006-01-02")] {
+			if _, ok := holidays[nd.Format("2006-01-02")]; ok {
 				holidayBonus += 2
 			}
 		}
@@ -240,7 +241,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays, pto, suggested
 }
 
 // findBestDay finds the single best day to take off (for filling remaining days).
-func findBestDay(start, end time.Time, holidays, pto, suggested map[string]bool) (time.Time, float64, int) {
+func findBestDay(start, end time.Time, holidays map[string]string, pto, suggested map[string]bool) (time.Time, float64, int) {
 	var bestDate time.Time
 	var bestScore float64
 	var bestStreak int
@@ -250,7 +251,8 @@ func findBestDay(start, end time.Time, holidays, pto, suggested map[string]bool)
 		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
 			continue
 		}
-		if holidays[ds] || pto[ds] || suggested[ds] {
+		_, isHoliday := holidays[ds]
+		if isHoliday || pto[ds] || suggested[ds] {
 			continue
 		}
 
@@ -314,7 +316,7 @@ func edgeDist(blockStart, blockEnd, t time.Time) float64 {
 }
 
 // computeStreak calculates the total consecutive days off if a candidate day is taken off.
-func computeStreak(candidate time.Time, holidays, pto, suggested map[string]bool) int {
+func computeStreak(candidate time.Time, holidays map[string]string, pto, suggested map[string]bool) int {
 	count := 1 // the candidate day itself
 
 	// Expand backward
@@ -338,15 +340,16 @@ func computeStreak(candidate time.Time, holidays, pto, suggested map[string]bool
 	return count
 }
 
-func isOff(d time.Time, holidays, pto, suggested map[string]bool) bool {
+func isOff(d time.Time, holidays map[string]string, pto, suggested map[string]bool) bool {
 	ds := d.Format("2006-01-02")
 	if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
 		return true
 	}
-	return holidays[ds] || pto[ds] || suggested[ds]
+	_, isHoliday := holidays[ds]
+	return isHoliday || pto[ds] || suggested[ds]
 }
 
-func explainSuggestion(d time.Time, streak int, holidays map[string]bool) string {
+func explainSuggestion(d time.Time, streak int, holidays map[string]string) string {
 	// Find nearby holidays to mention
 	for offset := -7; offset <= 7; offset++ {
 		if offset == 0 {
@@ -354,8 +357,8 @@ func explainSuggestion(d time.Time, streak int, holidays map[string]bool) string
 		}
 		nearby := d.AddDate(0, 0, offset)
 		ns := nearby.Format("2006-01-02")
-		if holidays[ns] {
-			return fmt.Sprintf("near %s holiday", nearby.Format("Jan 02"))
+		if name, ok := holidays[ns]; ok {
+			return fmt.Sprintf("near %s", name)
 		}
 	}
 
