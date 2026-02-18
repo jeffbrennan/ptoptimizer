@@ -11,6 +11,7 @@ import (
 var (
 	ptoStyle       = lipgloss.NewStyle().Background(lipgloss.Color("209")).Foreground(lipgloss.Color("16")).Bold(true)
 	suggestedColor = lipgloss.NewStyle().Foreground(lipgloss.Color("209")).Bold(true)
+	todayStyle     = lipgloss.NewStyle().Background(lipgloss.Color("73")).Foreground(lipgloss.Color("16")).Bold(true)
 	weekendStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	headerStyle    = lipgloss.NewStyle().Bold(true)
 	titleStyle     = lipgloss.NewStyle().Bold(true)
@@ -29,7 +30,7 @@ type CalendarData struct {
 // RenderBalanceBar renders a progress bar showing PTO balance.
 func RenderBalanceBar(current, max float64) string {
 	if max <= 0 {
-		return titleStyle.Render(fmt.Sprintf("  Unplanned PTO Balance on 12/31: %.0f hrs", current))
+		return titleStyle.Render(fmt.Sprintf("Unplanned PTO Balance on 12/31: %.0f hrs", current))
 	}
 
 	barWidth := 30
@@ -45,7 +46,7 @@ func RenderBalanceBar(current, max float64) string {
 		barEmpty.Render(strings.Repeat("░", barWidth-filled))
 
 	daysRemaining := current / 8.0
-	return titleStyle.Render(fmt.Sprintf("  Unplanned PTO Balance on 12/31: %s %.0f/%.0f hrs (%.0f days remaining)",
+	return titleStyle.Render(fmt.Sprintf("Unplanned PTO Balance on 12/31: %s %.0f/%.0f hrs (%.0f days remaining)",
 		bar, current, max, daysRemaining))
 }
 
@@ -108,6 +109,8 @@ func renderMonthLines(year int, month time.Month, data CalendarData) []string {
 	var weekLine strings.Builder
 	weekLine.WriteString(strings.Repeat("   ", offset))
 
+	today := time.Now().Format("2006-01-02")
+
 	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
 		dow := (int(d.Weekday()) + 6) % 7
 		ds := d.Format("2006-01-02")
@@ -118,6 +121,8 @@ func renderMonthLines(year int, month time.Month, data CalendarData) []string {
 			dayStr = ptoStyle.Render(dayStr)
 		case data.Suggested[ds]:
 			dayStr = suggestedColor.Render(dayStr)
+		case ds == today:
+			dayStr = todayStyle.Render(dayStr)
 		case d.Weekday() == time.Saturday || d.Weekday() == time.Sunday:
 			dayStr = weekendStyle.Render(dayStr)
 		}
