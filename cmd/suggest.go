@@ -16,7 +16,8 @@ var suggestCmd = &cobra.Command{
 	Short: "Suggest optimal PTO days",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		year, _ := cmd.Flags().GetInt("year")
-		strategyFlag, _ := cmd.Flags().GetString("strategy")
+
+		maxVacations, _ := cmd.Flags().GetInt("vacations")
 
 		cfg, err := config.Load()
 		if err != nil {
@@ -48,12 +49,7 @@ var suggestCmd = &cobra.Command{
 			}
 		}
 
-		strategy := cfg.Strategy
-		if strategyFlag != "" {
-			strategy = strategyFlag
-		}
-
-		suggestions := engine.SuggestDays(cfg, year, days, strategy, blackoutSet)
+		suggestions := engine.SuggestDays(cfg, year, days, maxVacations, blackoutSet)
 		fmt.Println()
 		fmt.Println(display.RenderBalanceBar(balance, cfg.Accrual.MaxBalanceHours))
 		fmt.Println()
@@ -143,6 +139,6 @@ var suggestCmd = &cobra.Command{
 
 func init() {
 	suggestCmd.Flags().Int("year", time.Now().Year(), "Year to suggest PTO for")
-	suggestCmd.Flags().String("strategy", "", "Suggestion strategy: \"vacations\" or \"long-weekends\" (overrides config)")
+	suggestCmd.Flags().Int("vacations", 2, "Max number of week-long vacations (5+ days); 0 for long weekends only")
 	rootCmd.AddCommand(suggestCmd)
 }

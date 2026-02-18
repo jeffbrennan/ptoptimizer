@@ -87,15 +87,13 @@ const maxStreakDays = 14
 //  1. Pick week-long (5-weekday) vacation blocks for true vacations
 //  2. Fill remaining days individually for long weekends
 //
-// strategy controls the balance between phases:
-//   - "vacations" (default): prioritize week-long blocks, fill remainder as long weekends
-//   - "long-weekends": skip blocks entirely, maximize individual long-weekend days
+// maxVacations controls how many week-long blocks Phase 1 picks:
+//   - negative: unlimited (pick as many blocks as days allow)
+//   - 0: skip Phase 1, all days allocated as long weekends
+//   - positive: cap Phase 1 at this many blocks
 //
 // blackoutSet contains dates that must not be suggested.
-func SuggestDays(cfg *config.Config, year int, n int, strategy string, blackoutSet map[string]bool) []Suggestion {
-	if strategy == "" {
-		strategy = "vacations"
-	}
+func SuggestDays(cfg *config.Config, year int, n int, maxVacations int, blackoutSet map[string]bool) []Suggestion {
 	if blackoutSet == nil {
 		blackoutSet = make(map[string]bool)
 	}
@@ -128,30 +126,30 @@ func SuggestDays(cfg *config.Config, year int, n int, strategy string, blackoutS
 	}
 	endOfYear := time.Date(year, 12, 31, 0, 0, 0, 0, time.Local)
 
-	// Phase 1: Pick vacation blocks (5 weekdays each) — skipped for "long-weekends"
-	if strategy != "long-weekends" {
-		for remaining >= 5 {
-			bestBlock, bestScore := findBestBlock(startDate, endOfYear, remaining, holidaySet, ptoSet, suggestedSet, blackoutSet)
-			if bestScore <= 0 || len(bestBlock) == 0 {
-				break
-			}
-
-			// Add all days in the block
-			for _, d := range bestBlock {
-				ds := d.Format("2006-01-02")
-				suggestedSet[ds] = true
-				streak := computeStreak(d, holidaySet, ptoSet, suggestedSet)
-				if streak > maxStreakDays {
-					streak = maxStreakDays
-				}
-				suggestions = append(suggestions, Suggestion{
-					Date:        d,
-					Explanation: explainSuggestion(d, streak, holidaySet),
-					StreakDays:   streak,
-				})
-			}
-			remaining -= len(bestBlock)
+	// Phase 1: Pick vacation blocks (5 weekdays each)
+	blocksUsed := 0
+	for remaining >= 5 && (maxVacations < 0 || blocksUsed < maxVacations) {
+		bestBlock, bestScore := findBestBlock(startDate, endOfYear, remaining, holidaySet, ptoSet, suggestedSet, blackoutSet)
+		if bestScore <= 0 || len(bestBlock) == 0 {
+			break
 		}
+
+		// Add all days in the block
+		for _, d := range bestBlock {
+			ds := d.Format("2006-01-02")
+			suggestedSet[ds] = true
+			streak := computeStreak(d, holidaySet, ptoSet, suggestedSet)
+			if streak > maxStreakDays {
+				streak = maxStreakDays
+			}
+			suggestions = append(suggestions, Suggestion{
+				Date:        d,
+				Explanation: explainSuggestion(d, streak, holidaySet),
+				StreakDays:   streak,
+			})
+		}
+		remaining -= len(bestBlock)
+		blocksUsed++
 	}
 
 	// Phase 2: Fill remaining days individually for long weekends

@@ -36,7 +36,6 @@ type Config struct {
 	Holidays       []Holiday      `json:"holidays"`
 	Accrual        AccrualConfig  `json:"accrual"`
 	PlannedTimeOff []PlannedPTO   `json:"planned_time_off"`
-	Strategy       string         `json:"strategy,omitempty"`
 	BlackoutDates  []BlackoutDate `json:"blackout_dates,omitempty"`
 }
 
