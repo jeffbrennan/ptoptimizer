@@ -16,6 +16,7 @@ var suggestCmd = &cobra.Command{
 	Short: "Suggest optimal PTO days",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		year, _ := cmd.Flags().GetInt("year")
+		strategyFlag, _ := cmd.Flags().GetString("strategy")
 
 		cfg, err := config.Load()
 		if err != nil {
@@ -34,7 +35,25 @@ var suggestCmd = &cobra.Command{
 			days = 0
 		}
 
-		suggestions := engine.SuggestDays(cfg, year, days)
+		// Build blackout set
+		blackoutSet := make(map[string]bool)
+		for _, b := range cfg.BlackoutDates {
+			start, err1 := time.Parse("2006-01-02", b.StartDate)
+			end, err2 := time.Parse("2006-01-02", b.EndDate)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+				blackoutSet[d.Format("2006-01-02")] = true
+			}
+		}
+
+		strategy := cfg.Strategy
+		if strategyFlag != "" {
+			strategy = strategyFlag
+		}
+
+		suggestions := engine.SuggestDays(cfg, year, days, strategy, blackoutSet)
 		fmt.Println()
 		fmt.Println(display.RenderBalanceBar(balance, cfg.Accrual.MaxBalanceHours))
 		fmt.Println()
@@ -63,6 +82,7 @@ var suggestCmd = &cobra.Command{
 			Holidays:  holidaySet,
 			PTO:       ptoSet,
 			Suggested: suggestedSet,
+			Blackout:  blackoutSet,
 		}
 
 		fmt.Println(display.RenderYearCalendar(year, data))
@@ -123,5 +143,6 @@ var suggestCmd = &cobra.Command{
 
 func init() {
 	suggestCmd.Flags().Int("year", time.Now().Year(), "Year to suggest PTO for")
+	suggestCmd.Flags().String("strategy", "", "Suggestion strategy: \"spread\" or \"cluster\" (overrides config)")
 	rootCmd.AddCommand(suggestCmd)
 }

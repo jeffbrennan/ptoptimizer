@@ -32,6 +32,11 @@ var configShowCmd = &cobra.Command{
 		} else {
 			fmt.Println("  Max balance:    unlimited")
 		}
+		strategy := cfg.Strategy
+		if strategy == "" {
+			strategy = "spread"
+		}
+		fmt.Printf("  Strategy:       %s\n", strategy)
 		return nil
 	},
 }
@@ -65,6 +70,13 @@ var configSetCmd = &cobra.Command{
 			v, _ := cmd.Flags().GetString("as-of")
 			cfg.Accrual.BalanceAsOfDate = v
 		}
+		if cmd.Flags().Changed("strategy") {
+			v, _ := cmd.Flags().GetString("strategy")
+			if v != "spread" && v != "cluster" {
+				return fmt.Errorf("strategy must be \"spread\" or \"cluster\"")
+			}
+			cfg.Strategy = v
+		}
 
 		if err := config.Save(cfg); err != nil {
 			return fmt.Errorf("saving config: %w", err)
@@ -81,6 +93,7 @@ func init() {
 	configSetCmd.Flags().Int("period", 14, "Pay period length in days")
 	configSetCmd.Flags().Float64("max", 0, "Maximum balance cap in hours (0 = unlimited)")
 	configSetCmd.Flags().String("as-of", "", "Date the balance is as of (YYYY-MM-DD)")
+	configSetCmd.Flags().String("strategy", "", "Suggestion strategy: \"spread\" or \"cluster\"")
 
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetCmd)

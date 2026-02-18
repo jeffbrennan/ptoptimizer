@@ -60,9 +60,22 @@ var balanceCmd = &cobra.Command{
 			}
 		}
 
+		blackoutSet := make(map[string]bool)
+		for _, b := range cfg.BlackoutDates {
+			bStart, err1 := time.Parse("2006-01-02", b.StartDate)
+			bEnd, err2 := time.Parse("2006-01-02", b.EndDate)
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			for d := bStart; !d.After(bEnd); d = d.AddDate(0, 0, 1) {
+				blackoutSet[d.Format("2006-01-02")] = true
+			}
+		}
+
 		data := display.CalendarData{
 			Holidays: holidaySet,
 			PTO:      ptoSet,
+			Blackout: blackoutSet,
 		}
 
 		fmt.Println(display.RenderYearCalendar(year, data))

@@ -86,7 +86,18 @@ const maxStreakDays = 14
 // It uses a two-phase approach:
 //  1. Pick week-long (5-weekday) vacation blocks for true vacations
 //  2. Fill remaining days individually for long weekends
-func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
+//
+// strategy controls proximity scoring: "spread" (default) spaces vacations out,
+// "cluster" rewards placing them near each other.
+// blackoutSet contains dates that must not be suggested.
+func SuggestDays(cfg *config.Config, year int, n int, strategy string, blackoutSet map[string]bool) []Suggestion {
+	if strategy == "" {
+		strategy = "spread"
+	}
+	if blackoutSet == nil {
+		blackoutSet = make(map[string]bool)
+	}
+
 	holidaySet := make(map[string]string)
 	for _, h := range cfg.Holidays {
 		holidaySet[h.Date] = h.Name
@@ -117,7 +128,7 @@ func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
 
 	// Phase 1: Pick vacation blocks (5-10 weekdays each) while we have enough days
 	for remaining >= 5 {
-		bestBlock, bestScore := findBestBlock(startDate, endOfYear, remaining, holidaySet, ptoSet, suggestedSet)
+		bestBlock, bestScore := findBestBlock(startDate, endOfYear, remaining, holidaySet, ptoSet, suggestedSet, blackoutSet, strategy)
 		if bestScore <= 0 || len(bestBlock) == 0 {
 			break
 		}
@@ -141,7 +152,7 @@ func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
 
 	// Phase 2: Fill remaining days individually for long weekends
 	for remaining > 0 {
-		bestDate, bestScore, bestStreak := findBestDay(startDate, endOfYear, holidaySet, ptoSet, suggestedSet)
+		bestDate, bestScore, bestStreak := findBestDay(startDate, endOfYear, holidaySet, ptoSet, suggestedSet, blackoutSet, strategy)
 		if bestScore <= 0 {
 			break
 		}
@@ -175,7 +186,7 @@ func SuggestDays(cfg *config.Config, year int, n int) []Suggestion {
 // findBestBlock finds the best contiguous block of 5 weekdays (one work week).
 // Scores by: nearby holidays/PTO that extend the streak, penalized by proximity
 // to already-suggested or planned days to spread vacations across the year.
-func findBestBlock(start, end time.Time, remaining int, holidays map[string]string, pto, suggested map[string]bool) ([]time.Time, float64) {
+func findBestBlock(start, end time.Time, remaining int, holidays map[string]string, pto, suggested, blackout map[string]bool, strategy string) ([]time.Time, float64) {
 	var bestBlock []time.Time
 	var bestScore float64
 
@@ -193,7 +204,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays map[string]stri
 			}
 			cs := c.Format("2006-01-02")
 			_, isHoliday := holidays[cs]
-			if isHoliday || pto[cs] || suggested[cs] {
+			if isHoliday || pto[cs] || suggested[cs] || blackout[cs] {
 				valid = false
 				break
 			}
@@ -217,7 +228,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays map[string]stri
 		}
 
 		// Proximity to existing suggested days AND planned PTO
-		penalty := proximityPenalty(block[0], block[4], suggested, pto)
+		penalty := proximityPenalty(block[0], block[4], suggested, pto, strategy)
 
 		// Bonus for adjacent holidays (makes the vacation longer for free)
 		holidayBonus := 0
@@ -241,7 +252,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays map[string]stri
 }
 
 // findBestDay finds the single best day to take off (for filling remaining days).
-func findBestDay(start, end time.Time, holidays map[string]string, pto, suggested map[string]bool) (time.Time, float64, int) {
+func findBestDay(start, end time.Time, holidays map[string]string, pto, suggested, blackout map[string]bool, strategy string) (time.Time, float64, int) {
 	var bestDate time.Time
 	var bestScore float64
 	var bestStreak int
@@ -252,7 +263,7 @@ func findBestDay(start, end time.Time, holidays map[string]string, pto, suggeste
 			continue
 		}
 		_, isHoliday := holidays[ds]
-		if isHoliday || pto[ds] || suggested[ds] {
+		if isHoliday || pto[ds] || suggested[ds] || blackout[ds] {
 			continue
 		}
 
@@ -261,7 +272,7 @@ func findBestDay(start, end time.Time, holidays map[string]string, pto, suggeste
 			streak = maxStreakDays
 		}
 
-		penalty := proximityPenalty(d, d, suggested, pto)
+		penalty := proximityPenalty(d, d, suggested, pto, strategy)
 		score := float64(streak) * penalty
 
 		if score > bestScore {
@@ -274,9 +285,10 @@ func findBestDay(start, end time.Time, holidays map[string]string, pto, suggeste
 	return bestDate, bestScore, bestStreak
 }
 
-// proximityPenalty penalizes candidates close to already-suggested or planned days,
-// encouraging vacation blocks to spread across the year.
-func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]bool) float64 {
+// proximityPenalty scores candidates based on distance to existing time off.
+// "spread" penalizes proximity (spreads vacations out).
+// "cluster" rewards proximity (groups vacations together).
+func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]bool, strategy string) float64 {
 	minDist := 366.0
 	for ds := range suggested {
 		t, err := time.Parse("2006-01-02", ds)
@@ -301,7 +313,11 @@ func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]
 	if minDist >= 366.0 {
 		return 1.0
 	}
-	// Steep penalty: blocks within 30 days of existing time off score very low
+	if strategy == "cluster" {
+		// Reward proximity: closer blocks score higher
+		return math.Min(1.0, (120-minDist)/60.0)
+	}
+	// Spread: penalize proximity
 	return math.Min(1.0, minDist/60.0)
 }
 

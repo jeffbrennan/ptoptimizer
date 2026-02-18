@@ -12,6 +12,7 @@ var (
 	ptoStyle       = lipgloss.NewStyle().Background(lipgloss.Color("209")).Foreground(lipgloss.Color("16")).Bold(true)
 	suggestedColor = lipgloss.NewStyle().Foreground(lipgloss.Color("209")).Bold(true)
 	todayStyle     = lipgloss.NewStyle().Background(lipgloss.Color("73")).Foreground(lipgloss.Color("16")).Bold(true)
+	blackoutStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 	weekendStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	headerStyle    = lipgloss.NewStyle().Bold(true)
 	titleStyle     = lipgloss.NewStyle().Bold(true)
@@ -25,6 +26,7 @@ type CalendarData struct {
 	Holidays  map[string]bool
 	PTO       map[string]bool
 	Suggested map[string]bool
+	Blackout  map[string]bool
 }
 
 // RenderBalanceBar renders a progress bar showing PTO balance.
@@ -119,6 +121,8 @@ func renderMonthLines(year int, month time.Month, data CalendarData) []string {
 		switch {
 		case data.PTO[ds]:
 			dayStr = ptoStyle.Render(dayStr)
+		case data.Blackout[ds]:
+			dayStr = blackoutStyle.Render(dayStr)
 		case data.Suggested[ds]:
 			dayStr = suggestedColor.Render(dayStr)
 		case ds == today:

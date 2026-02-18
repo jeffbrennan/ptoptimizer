@@ -26,10 +26,18 @@ type PlannedPTO struct {
 	Label     string  `json:"label,omitempty"`
 }
 
+type BlackoutDate struct {
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 type Config struct {
-	Holidays       []Holiday     `json:"holidays"`
-	Accrual        AccrualConfig `json:"accrual"`
-	PlannedTimeOff []PlannedPTO  `json:"planned_time_off"`
+	Holidays       []Holiday      `json:"holidays"`
+	Accrual        AccrualConfig  `json:"accrual"`
+	PlannedTimeOff []PlannedPTO   `json:"planned_time_off"`
+	Strategy       string         `json:"strategy,omitempty"`
+	BlackoutDates  []BlackoutDate `json:"blackout_dates,omitempty"`
 }
 
 func ConfigDir() (string, error) {
