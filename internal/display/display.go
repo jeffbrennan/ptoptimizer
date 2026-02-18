@@ -12,8 +12,8 @@ var (
 	ptoStyle       = lipgloss.NewStyle().Background(lipgloss.Color("209")).Foreground(lipgloss.Color("16")).Bold(true)
 	suggestedColor = lipgloss.NewStyle().Foreground(lipgloss.Color("209")).Bold(true)
 	weekendStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	headerStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	headerStyle    = lipgloss.NewStyle().Bold(true)
+	titleStyle     = lipgloss.NewStyle().Bold(true)
 
 	barFilled = lipgloss.NewStyle().Foreground(lipgloss.Color("34"))
 	barEmpty  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -94,8 +94,8 @@ func RenderYearCalendar(year int, data CalendarData) string {
 func renderMonthLines(year int, month time.Month, data CalendarData) []string {
 	var lines []string
 
-	// Month header: abbreviated name, centered
-	name := month.String()[:3]
+	// Month header: full name, centered
+	name := month.String()
 	pad := (monthWidth - len(name)) / 2
 	if pad < 0 {
 		pad = 0
