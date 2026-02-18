@@ -9,13 +9,12 @@ import (
 )
 
 var (
-	holidayStyle  = lipgloss.NewStyle().Background(lipgloss.Color("196")).Foreground(lipgloss.Color("231")).Bold(true)
-	ptoStyle      = lipgloss.NewStyle().Background(lipgloss.Color("34")).Foreground(lipgloss.Color("231")).Bold(true)
-	suggestedStyle = lipgloss.NewStyle().Background(lipgloss.Color("220")).Foreground(lipgloss.Color("16")).Bold(true)
-	weekendStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	normalStyle   = lipgloss.NewStyle()
-	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
+	ptoStyle       = lipgloss.NewStyle().Background(lipgloss.Color("209")).Foreground(lipgloss.Color("16")).Bold(true)
+	suggestedColor = lipgloss.NewStyle().Foreground(lipgloss.Color("209")).Bold(true)
+	todayStyle     = lipgloss.NewStyle().Background(lipgloss.Color("73")).Foreground(lipgloss.Color("16")).Bold(true)
+	weekendStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	headerStyle    = lipgloss.NewStyle().Bold(true)
+	titleStyle     = lipgloss.NewStyle().Bold(true)
 
 	barFilled = lipgloss.NewStyle().Foreground(lipgloss.Color("34"))
 	barEmpty  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -31,7 +30,7 @@ type CalendarData struct {
 // RenderBalanceBar renders a progress bar showing PTO balance.
 func RenderBalanceBar(current, max float64) string {
 	if max <= 0 {
-		return titleStyle.Render(fmt.Sprintf("  PTO Balance: %.0f hrs", current))
+		return titleStyle.Render(fmt.Sprintf("Unplanned PTO Balance on 12/31: %.0f hrs", current))
 	}
 
 	barWidth := 30
@@ -47,42 +46,45 @@ func RenderBalanceBar(current, max float64) string {
 		barEmpty.Render(strings.Repeat("░", barWidth-filled))
 
 	daysRemaining := current / 8.0
-	return titleStyle.Render(fmt.Sprintf("  PTO Balance: %s %.0f/%.0f hrs (%.0f days remaining)",
+	return titleStyle.Render(fmt.Sprintf("Unplanned PTO Balance on 12/31: %s %.0f/%.0f hrs (%.0f days remaining)",
 		bar, current, max, daysRemaining))
 }
 
-// RenderYearCalendar renders a full year calendar grid with color-coded days.
+// monthWidth is the visible character width of one rendered month column.
+const monthWidth = 20
+
+// RenderYearCalendar renders a full year calendar in a 6×2 grid.
 func RenderYearCalendar(year int, data CalendarData) string {
 	var sb strings.Builder
 
-	// Render months in pairs (2 columns)
-	for month := time.January; month <= time.December; month += 2 {
-		left := renderMonth(year, month, data)
-		var right []string
-		if month+1 <= time.December {
-			right = strings.Split(renderMonth(year, month+1, data), "\n")
-		}
-		leftLines := strings.Split(left, "\n")
-
-		// Pad to same height
-		maxLines := len(leftLines)
-		if len(right) > maxLines {
-			maxLines = len(right)
-		}
-		for len(leftLines) < maxLines {
-			leftLines = append(leftLines, "")
-		}
-		for len(right) < maxLines {
-			right = append(right, "")
-		}
-
-		for i := 0; i < maxLines; i++ {
-			l := padRight(leftLines[i], 32)
-			r := ""
-			if i < len(right) {
-				r = right[i]
+	for row := 0; row < 3; row++ {
+		// Render each month in this row into lines
+		monthLines := make([][]string, 4)
+		maxHeight := 0
+		for col := 0; col < 4; col++ {
+			m := time.Month(row*4 + col + 1)
+			monthLines[col] = renderMonthLines(year, m, data)
+			if len(monthLines[col]) > maxHeight {
+				maxHeight = len(monthLines[col])
 			}
-			sb.WriteString("  " + l + "    " + r + "\n")
+		}
+
+		// Pad all months to same height
+		for col := 0; col < 4; col++ {
+			for len(monthLines[col]) < maxHeight {
+				monthLines[col] = append(monthLines[col], "")
+			}
+		}
+
+		// Print side by side
+		for line := 0; line < maxHeight; line++ {
+			for col := 0; col < 4; col++ {
+				if col > 0 {
+					sb.WriteString("  ")
+				}
+				sb.WriteString(padRight(monthLines[col][line], monthWidth))
+			}
+			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
 	}
@@ -90,74 +92,56 @@ func RenderYearCalendar(year int, data CalendarData) string {
 	return sb.String()
 }
 
-func renderMonth(year int, month time.Month, data CalendarData) string {
-	var sb strings.Builder
+func renderMonthLines(year int, month time.Month, data CalendarData) []string {
+	var lines []string
 
-	title := fmt.Sprintf("── %s %d ", month.String(), year)
-	title += strings.Repeat("─", 26-visibleLen(title))
-	sb.WriteString(headerStyle.Render(title) + "\n")
-
-	sb.WriteString(weekendStyle.Render("Mo Tu We Th Fr") + "  " + weekendStyle.Render("Sa Su") + "\n")
+	// Month header: full name, left aligned
+	name := month.String()
+	header := name
+	lines = append(lines, headerStyle.Render(header))
 
 	first := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
 	last := time.Date(year, month+1, 0, 0, 0, 0, 0, time.Local)
 
 	// Offset for the first day (Monday = 0)
 	offset := (int(first.Weekday()) + 6) % 7
-	sb.WriteString(strings.Repeat("   ", offset))
+
+	var weekLine strings.Builder
+	weekLine.WriteString(strings.Repeat("   ", offset))
+
+	today := time.Now().Format("2006-01-02")
 
 	for d := first; !d.After(last); d = d.AddDate(0, 0, 1) {
+		dow := (int(d.Weekday()) + 6) % 7
 		ds := d.Format("2006-01-02")
 		dayStr := fmt.Sprintf("%2d", d.Day())
-		dow := (int(d.Weekday()) + 6) % 7 // Monday = 0
-
-		// Insert separator before weekend columns
-		if dow == 5 && d.Day() > 1 {
-			// Already have space from previous day
-		}
 
 		switch {
-		case data.Holidays[ds]:
-			dayStr = holidayStyle.Render(dayStr)
 		case data.PTO[ds]:
 			dayStr = ptoStyle.Render(dayStr)
 		case data.Suggested[ds]:
-			dayStr = suggestedStyle.Render(dayStr)
+			dayStr = suggestedColor.Render(dayStr)
+		case ds == today:
+			dayStr = todayStyle.Render(dayStr)
 		case d.Weekday() == time.Saturday || d.Weekday() == time.Sunday:
 			dayStr = weekendStyle.Render(dayStr)
-		default:
-			dayStr = normalStyle.Render(dayStr)
 		}
 
-		if dow == 5 {
-			sb.WriteString("  " + dayStr)
-		} else {
-			sb.WriteString(dayStr)
-		}
+		weekLine.WriteString(dayStr)
 
 		if dow == 6 {
-			sb.WriteString("\n")
+			lines = append(lines, weekLine.String())
+			weekLine.Reset()
 		} else {
-			sb.WriteString(" ")
+			weekLine.WriteString(" ")
 		}
 	}
 
-	// Final newline if month doesn't end on Sunday
-	if last.Weekday() != time.Sunday {
-		sb.WriteString("\n")
+	if weekLine.Len() > 0 {
+		lines = append(lines, weekLine.String())
 	}
 
-	return sb.String()
-}
-
-// RenderLegend renders the color legend.
-func RenderLegend() string {
-	return fmt.Sprintf("  Legend: %s Holiday  %s Planned PTO  %s Suggested  %s Weekend",
-		holidayStyle.Render("██"),
-		ptoStyle.Render("██"),
-		suggestedStyle.Render("██"),
-		weekendStyle.Render("░░"),
-	)
+	return lines
 }
 
 func padRight(s string, width int) string {
