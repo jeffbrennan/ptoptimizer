@@ -101,6 +101,7 @@ func renderMonthLines(year int, month time.Month, data CalendarData) []string {
 	name := month.String()
 	header := name
 	lines = append(lines, headerStyle.Render(header))
+	lines = append(lines, weekendStyle.Render(" M  T  W  T  F")+"  "+weekendStyle.Render("S  S"))
 
 	first := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
 	last := time.Date(year, month+1, 0, 0, 0, 0, 0, time.Local)
