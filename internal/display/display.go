@@ -56,12 +56,12 @@ const monthWidth = 20
 func RenderYearCalendar(year int, data CalendarData) string {
 	var sb strings.Builder
 
-	for row := 0; row < 2; row++ {
+	for row := 0; row < 3; row++ {
 		// Render each month in this row into lines
-		monthLines := make([][]string, 6)
+		monthLines := make([][]string, 4)
 		maxHeight := 0
-		for col := 0; col < 6; col++ {
-			m := time.Month(row*6 + col + 1)
+		for col := 0; col < 4; col++ {
+			m := time.Month(row*4 + col + 1)
 			monthLines[col] = renderMonthLines(year, m, data)
 			if len(monthLines[col]) > maxHeight {
 				maxHeight = len(monthLines[col])
@@ -69,7 +69,7 @@ func RenderYearCalendar(year int, data CalendarData) string {
 		}
 
 		// Pad all months to same height
-		for col := 0; col < 6; col++ {
+		for col := 0; col < 4; col++ {
 			for len(monthLines[col]) < maxHeight {
 				monthLines[col] = append(monthLines[col], "")
 			}
@@ -77,7 +77,7 @@ func RenderYearCalendar(year int, data CalendarData) string {
 
 		// Print side by side
 		for line := 0; line < maxHeight; line++ {
-			for col := 0; col < 6; col++ {
+			for col := 0; col < 4; col++ {
 				if col > 0 {
 					sb.WriteString("  ")
 				}
@@ -94,13 +94,9 @@ func RenderYearCalendar(year int, data CalendarData) string {
 func renderMonthLines(year int, month time.Month, data CalendarData) []string {
 	var lines []string
 
-	// Month header: full name, centered
+	// Month header: full name, left aligned
 	name := month.String()
-	pad := (monthWidth - len(name)) / 2
-	if pad < 0 {
-		pad = 0
-	}
-	header := strings.Repeat(" ", pad) + name
+	header := name
 	lines = append(lines, headerStyle.Render(header))
 
 	first := time.Date(year, month, 1, 0, 0, 0, 0, time.Local)
