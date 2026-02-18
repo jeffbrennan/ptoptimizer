@@ -87,12 +87,14 @@ const maxStreakDays = 14
 //  1. Pick week-long (5-weekday) vacation blocks for true vacations
 //  2. Fill remaining days individually for long weekends
 //
-// strategy controls proximity scoring: "spread" (default) spaces vacations out,
-// "cluster" rewards placing them near each other.
+// strategy controls the balance between phases:
+//   - "vacations" (default): prioritize week-long blocks, fill remainder as long weekends
+//   - "long-weekends": skip blocks entirely, maximize individual long-weekend days
+//
 // blackoutSet contains dates that must not be suggested.
 func SuggestDays(cfg *config.Config, year int, n int, strategy string, blackoutSet map[string]bool) []Suggestion {
 	if strategy == "" {
-		strategy = "spread"
+		strategy = "vacations"
 	}
 	if blackoutSet == nil {
 		blackoutSet = make(map[string]bool)
@@ -126,33 +128,35 @@ func SuggestDays(cfg *config.Config, year int, n int, strategy string, blackoutS
 	}
 	endOfYear := time.Date(year, 12, 31, 0, 0, 0, 0, time.Local)
 
-	// Phase 1: Pick vacation blocks (5-10 weekdays each) while we have enough days
-	for remaining >= 5 {
-		bestBlock, bestScore := findBestBlock(startDate, endOfYear, remaining, holidaySet, ptoSet, suggestedSet, blackoutSet, strategy)
-		if bestScore <= 0 || len(bestBlock) == 0 {
-			break
-		}
-
-		// Add all days in the block
-		for _, d := range bestBlock {
-			ds := d.Format("2006-01-02")
-			suggestedSet[ds] = true
-			streak := computeStreak(d, holidaySet, ptoSet, suggestedSet)
-			if streak > maxStreakDays {
-				streak = maxStreakDays
+	// Phase 1: Pick vacation blocks (5 weekdays each) — skipped for "long-weekends"
+	if strategy != "long-weekends" {
+		for remaining >= 5 {
+			bestBlock, bestScore := findBestBlock(startDate, endOfYear, remaining, holidaySet, ptoSet, suggestedSet, blackoutSet)
+			if bestScore <= 0 || len(bestBlock) == 0 {
+				break
 			}
-			suggestions = append(suggestions, Suggestion{
-				Date:        d,
-				Explanation: explainSuggestion(d, streak, holidaySet),
-				StreakDays:   streak,
-			})
+
+			// Add all days in the block
+			for _, d := range bestBlock {
+				ds := d.Format("2006-01-02")
+				suggestedSet[ds] = true
+				streak := computeStreak(d, holidaySet, ptoSet, suggestedSet)
+				if streak > maxStreakDays {
+					streak = maxStreakDays
+				}
+				suggestions = append(suggestions, Suggestion{
+					Date:        d,
+					Explanation: explainSuggestion(d, streak, holidaySet),
+					StreakDays:   streak,
+				})
+			}
+			remaining -= len(bestBlock)
 		}
-		remaining -= len(bestBlock)
 	}
 
 	// Phase 2: Fill remaining days individually for long weekends
 	for remaining > 0 {
-		bestDate, bestScore, bestStreak := findBestDay(startDate, endOfYear, holidaySet, ptoSet, suggestedSet, blackoutSet, strategy)
+		bestDate, bestScore, bestStreak := findBestDay(startDate, endOfYear, holidaySet, ptoSet, suggestedSet, blackoutSet)
 		if bestScore <= 0 {
 			break
 		}
@@ -186,7 +190,7 @@ func SuggestDays(cfg *config.Config, year int, n int, strategy string, blackoutS
 // findBestBlock finds the best contiguous block of 5 weekdays (one work week).
 // Scores by: nearby holidays/PTO that extend the streak, penalized by proximity
 // to already-suggested or planned days to spread vacations across the year.
-func findBestBlock(start, end time.Time, remaining int, holidays map[string]string, pto, suggested, blackout map[string]bool, strategy string) ([]time.Time, float64) {
+func findBestBlock(start, end time.Time, remaining int, holidays map[string]string, pto, suggested, blackout map[string]bool) ([]time.Time, float64) {
 	var bestBlock []time.Time
 	var bestScore float64
 
@@ -228,7 +232,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays map[string]stri
 		}
 
 		// Proximity to existing suggested days AND planned PTO
-		penalty := proximityPenalty(block[0], block[4], suggested, pto, strategy)
+		penalty := proximityPenalty(block[0], block[4], suggested, pto)
 
 		// Bonus for adjacent holidays (makes the vacation longer for free)
 		holidayBonus := 0
@@ -252,7 +256,7 @@ func findBestBlock(start, end time.Time, remaining int, holidays map[string]stri
 }
 
 // findBestDay finds the single best day to take off (for filling remaining days).
-func findBestDay(start, end time.Time, holidays map[string]string, pto, suggested, blackout map[string]bool, strategy string) (time.Time, float64, int) {
+func findBestDay(start, end time.Time, holidays map[string]string, pto, suggested, blackout map[string]bool) (time.Time, float64, int) {
 	var bestDate time.Time
 	var bestScore float64
 	var bestStreak int
@@ -272,7 +276,7 @@ func findBestDay(start, end time.Time, holidays map[string]string, pto, suggeste
 			streak = maxStreakDays
 		}
 
-		penalty := proximityPenalty(d, d, suggested, pto, strategy)
+		penalty := proximityPenalty(d, d, suggested, pto)
 		score := float64(streak) * penalty
 
 		if score > bestScore {
@@ -285,10 +289,9 @@ func findBestDay(start, end time.Time, holidays map[string]string, pto, suggeste
 	return bestDate, bestScore, bestStreak
 }
 
-// proximityPenalty scores candidates based on distance to existing time off.
-// "spread" penalizes proximity (spreads vacations out).
-// "cluster" rewards proximity (groups vacations together).
-func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]bool, strategy string) float64 {
+// proximityPenalty penalizes candidates close to already-suggested or planned days,
+// encouraging vacation blocks to spread across the year.
+func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]bool) float64 {
 	minDist := 366.0
 	for ds := range suggested {
 		t, err := time.Parse("2006-01-02", ds)
@@ -313,11 +316,7 @@ func proximityPenalty(blockStart, blockEnd time.Time, suggested, pto map[string]
 	if minDist >= 366.0 {
 		return 1.0
 	}
-	if strategy == "cluster" {
-		// Reward proximity: closer blocks score higher
-		return math.Min(1.0, (120-minDist)/60.0)
-	}
-	// Spread: penalize proximity
+	// Steep penalty: blocks within 30 days of existing time off score very low
 	return math.Min(1.0, minDist/60.0)
 }
 

@@ -143,6 +143,6 @@ var suggestCmd = &cobra.Command{
 
 func init() {
 	suggestCmd.Flags().Int("year", time.Now().Year(), "Year to suggest PTO for")
-	suggestCmd.Flags().String("strategy", "", "Suggestion strategy: \"spread\" or \"cluster\" (overrides config)")
+	suggestCmd.Flags().String("strategy", "", "Suggestion strategy: \"vacations\" or \"long-weekends\" (overrides config)")
 	rootCmd.AddCommand(suggestCmd)
 }

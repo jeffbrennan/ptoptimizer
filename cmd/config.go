@@ -34,7 +34,7 @@ var configShowCmd = &cobra.Command{
 		}
 		strategy := cfg.Strategy
 		if strategy == "" {
-			strategy = "spread"
+			strategy = "vacations"
 		}
 		fmt.Printf("  Strategy:       %s\n", strategy)
 		return nil
@@ -72,8 +72,8 @@ var configSetCmd = &cobra.Command{
 		}
 		if cmd.Flags().Changed("strategy") {
 			v, _ := cmd.Flags().GetString("strategy")
-			if v != "spread" && v != "cluster" {
-				return fmt.Errorf("strategy must be \"spread\" or \"cluster\"")
+			if v != "vacations" && v != "long-weekends" {
+				return fmt.Errorf("strategy must be \"vacations\" or \"long-weekends\"")
 			}
 			cfg.Strategy = v
 		}
@@ -93,7 +93,7 @@ func init() {
 	configSetCmd.Flags().Int("period", 14, "Pay period length in days")
 	configSetCmd.Flags().Float64("max", 0, "Maximum balance cap in hours (0 = unlimited)")
 	configSetCmd.Flags().String("as-of", "", "Date the balance is as of (YYYY-MM-DD)")
-	configSetCmd.Flags().String("strategy", "", "Suggestion strategy: \"spread\" or \"cluster\"")
+	configSetCmd.Flags().String("strategy", "", "Suggestion strategy: \"vacations\" or \"long-weekends\"")
 
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetCmd)
