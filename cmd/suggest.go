@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jeffb/ptoptimizer/internal/config"
@@ -84,6 +85,10 @@ var suggestCmd = &cobra.Command{
 				}
 			}
 		}
+
+		sort.Slice(plannedDates, func(i, j int) bool {
+			return plannedDates[i].date.Before(plannedDates[j].date)
+		})
 
 		// Two-column output: Planned | Suggested
 		planCol := fmt.Sprintf("Planned (%d days)", len(plannedDates))
